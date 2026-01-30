@@ -13,18 +13,33 @@ SYSTEM_PROMPT = """You are AgroSaathi, an expert agricultural AI assistant. You 
 
 Be concise, practical, and give actionable advice. If an image is provided, analyze it for crop/plant health issues."""
 
-def get_llm_response(text: str, image_path: str = None) -> str:
-    """Get response from Gemini API, optionally with an image."""
-    contents = []
+def get_llm_response(text: str, image_path: str = None, conversation_history: list = None) -> str:
+    """Get response from Gemini API, optionally with an image and conversation history."""
+    Content = genai.types.Content
+    Part = genai.types.Part
 
+    contents = [
+        Content(role="user", parts=[Part.from_text(text=SYSTEM_PROMPT)]),
+        Content(role="model", parts=[Part.from_text(text="Understood. I am AgroSaathi, ready to help with agricultural advice.")]),
+    ]
+
+    # Add conversation history
+    if conversation_history:
+        for msg in conversation_history:
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append(Content(role=role, parts=[Part.from_text(text=msg["content"])]))
+
+    # Build current user message parts
+    current_parts = []
     if image_path:
         import mimetypes
         mime_type = mimetypes.guess_type(image_path)[0] or "image/jpeg"
         with open(image_path, "rb") as f:
             image_data = f.read()
-        contents.append(genai.types.Part.from_bytes(data=image_data, mime_type=mime_type))
+        current_parts.append(Part.from_bytes(data=image_data, mime_type=mime_type))
+    current_parts.append(Part.from_text(text=text))
 
-    contents.append(SYSTEM_PROMPT + "\n\nUser query: " + text)
+    contents.append(Content(role="user", parts=current_parts))
 
     response = client.models.generate_content(
         model="gemini-2.0-flash",

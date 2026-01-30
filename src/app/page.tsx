@@ -19,6 +19,7 @@ interface Message {
   content: string;
   type: "text" | "image" | "audio";
   fileUrl?: string;
+  englishContent?: string;
 }
 
 export default function Home() {
@@ -174,12 +175,24 @@ export default function Home() {
       });
     }
 
+    const hadTextInput = inputValue.trim().length > 0;
+    const hadAudioInput = !!audioBlob;
+
     setMessages(prev => [...prev, ...newMessages]);
     setIsLoading(true);
+
+    // Build conversation history from past text messages (in English)
+    const history = messages
+      .filter(m => m.type === "text" && m.englishContent)
+      .map(m => ({
+        role: m.role === "user" ? "user" : "assistant",
+        content: m.englishContent!,
+      }));
 
     // Build form data
     const formData = new FormData();
     formData.append("language", language);
+    formData.append("conversation_history", JSON.stringify(history));
 
     if (inputValue.trim()) {
       formData.append("text", inputValue);
@@ -213,19 +226,36 @@ export default function Home() {
       }
 
       // Add transcribed text message if audio was sent
-      if (data.transcribed_text && audioBlob) {
+      if (data.transcribed_text && hadAudioInput) {
         setMessages(prev => [...prev, {
           role: "user",
           content: `(Transcribed) ${data.transcribed_text}`,
-          type: "text"
+          type: "text",
+          englishContent: data.english_user_text,
         }]);
+      }
+
+      // Tag the user's text message with english content for history
+      if (hadTextInput) {
+        setMessages(prev => {
+          const updated = [...prev];
+          // Find the last user text message and add englishContent
+          for (let i = updated.length - 1; i >= 0; i--) {
+            if (updated[i].role === "user" && updated[i].type === "text" && !updated[i].englishContent) {
+              updated[i] = { ...updated[i], englishContent: data.english_user_text };
+              break;
+            }
+          }
+          return updated;
+        });
       }
 
       // Add bot text response
       setMessages(prev => [...prev, {
         role: "bot",
         content: data.response_text,
-        type: "text"
+        type: "text",
+        englishContent: data.english_response_text,
       }]);
 
       // Add bot audio response
@@ -367,7 +397,9 @@ export default function Home() {
                     )}
                     {msg.type === "audio" && msg.fileUrl && (
                       <div className="flex items-center gap-2">
-                        <audio src={msg.fileUrl} controls className="h-8 max-w-full" />
+                        <audio key={msg.fileUrl} controls preload="auto" className="h-8 max-w-full">
+                          <source src={msg.fileUrl} type="audio/mpeg" />
+                        </audio>
                       </div>
                     )}
                     {msg.type === "text" && <span className="whitespace-pre-wrap">{msg.content}</span>}

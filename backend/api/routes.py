@@ -1,5 +1,6 @@
 import os
 import uuid
+import json
 from flask import Blueprint, request, jsonify, send_file
 from config import UPLOAD_FOLDER
 from services.stt_service import transcribe_audio
@@ -21,6 +22,7 @@ def chat():
     text = request.form.get("text", "").strip()
     audio_file = request.files.get("audio")
     image_file = request.files.get("image")
+    conversation_history = json.loads(request.form.get("conversation_history", "[]"))
 
     print(f"\n{'='*60}")
     print(f"[REQUEST] Language: {language}")
@@ -61,7 +63,7 @@ def chat():
 
         # Get LLM response (with image if provided)
         print(f"[LLM] Sending to Gemini (image: {bool(image_path)})...")
-        llm_response = get_llm_response(english_text, image_path)
+        llm_response = get_llm_response(english_text, image_path, conversation_history)
         print(f"[LLM] Response: '{llm_response[:200]}...'")
 
         # Translate response back to user's language
@@ -82,6 +84,8 @@ def chat():
             "transcribed_text": text,
             "response_text": translated_response,
             "audio_url": f"/api/audio/{tts_filename}",
+            "english_user_text": english_text,
+            "english_response_text": llm_response,
         })
 
     except Exception as e:
