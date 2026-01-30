@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Mic, Image as ImageIcon, Send, Paperclip, Languages, X, Square, Play, Pause } from "lucide-react";
+import { Mic, Image as ImageIcon, Send, Languages, X, Square, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -11,6 +11,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+
+const API_BASE = "http://localhost:5000/api";
 
 interface Message {
   role: "user" | "bot";
@@ -24,11 +26,13 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [language, setLanguage] = useState("en");
+  const [isLoading, setIsLoading] = useState(false);
 
   // Media States
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
@@ -37,6 +41,7 @@ export default function Home() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const languages = [
     { label: "English", value: "en" },
@@ -45,6 +50,10 @@ export default function Home() {
     { label: "Kannada", value: "kn" },
     { label: "Tamil", value: "ta" },
   ];
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const handleStartChat = (type: "audio" | "image") => {
     setView("chat");
@@ -60,7 +69,6 @@ export default function Home() {
     }
   };
 
-  // Image Handling
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -79,7 +87,6 @@ export default function Home() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // Audio Recording
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -94,9 +101,9 @@ export default function Home() {
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/wav" });
-        const url = URL.createObjectURL(audioBlob);
-        setAudioUrl(url);
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        setAudioBlob(blob);
+        setAudioUrl(URL.createObjectURL(blob));
         stream.getTracks().forEach(track => track.stop());
       };
 
@@ -124,6 +131,7 @@ export default function Home() {
 
   const cancelRecording = () => {
     stopRecording();
+    setAudioBlob(null);
     setAudioUrl(null);
     setRecordingSeconds(0);
   };
@@ -134,8 +142,9 @@ export default function Home() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleSendMessage = () => {
-    if (!inputValue.trim() && !imagePreview && !audioUrl) return;
+  const handleSendMessage = async () => {
+    if (isLoading) return;
+    if (!inputValue.trim() && !imagePreview && !audioBlob) return;
 
     const newMessages: Message[] = [];
 
@@ -146,7 +155,6 @@ export default function Home() {
         type: "image",
         fileUrl: imagePreview
       });
-      removeImage();
     }
 
     if (audioUrl) {
@@ -156,8 +164,6 @@ export default function Home() {
         type: "audio",
         fileUrl: audioUrl
       });
-      setAudioUrl(null);
-      setRecordingSeconds(0);
     }
 
     if (inputValue.trim()) {
@@ -166,19 +172,80 @@ export default function Home() {
         content: inputValue,
         type: "text"
       });
-      setInputValue("");
     }
 
     setMessages(prev => [...prev, ...newMessages]);
+    setIsLoading(true);
 
-    // Simulate bot response
-    setTimeout(() => {
+    // Build form data
+    const formData = new FormData();
+    formData.append("language", language);
+
+    if (inputValue.trim()) {
+      formData.append("text", inputValue);
+    }
+
+    if (audioBlob) {
+      formData.append("audio", audioBlob, "recording.webm");
+    }
+
+    if (selectedImage) {
+      formData.append("image", selectedImage);
+    }
+
+    // Clear inputs
+    setInputValue("");
+    removeImage();
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setRecordingSeconds(0);
+
+    try {
+      const response = await fetch(`${API_BASE}/chat`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Something went wrong");
+      }
+
+      // Add transcribed text message if audio was sent
+      if (data.transcribed_text && audioBlob) {
+        setMessages(prev => [...prev, {
+          role: "user",
+          content: `(Transcribed) ${data.transcribed_text}`,
+          type: "text"
+        }]);
+      }
+
+      // Add bot text response
       setMessages(prev => [...prev, {
         role: "bot",
-        content: "I received your message! I'm analyzing the content to provide you with the best agricultural advice. (This is a frontend demo)",
+        content: data.response_text,
         type: "text"
       }]);
-    }, 1000);
+
+      // Add bot audio response
+      if (data.audio_url) {
+        setMessages(prev => [...prev, {
+          role: "bot",
+          content: "Audio response",
+          type: "audio",
+          fileUrl: `${API_BASE.replace('/api', '')}${data.audio_url}`
+        }]);
+      }
+    } catch (error: any) {
+      setMessages(prev => [...prev, {
+        role: "bot",
+        content: `Error: ${error.message}. Make sure the backend server is running.`,
+        type: "text"
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -197,14 +264,10 @@ export default function Home() {
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/20 blur-[120px] rounded-full" />
       </div>
 
-      {/* Background Image (Landing only) */}
+      {/* Background gradient (Landing only) */}
       {view === "landing" && (
         <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
-          <img
-            src="/agri_background.png"
-            alt="Agricultural background"
-            className="w-full h-full object-cover"
-          />
+          <div className="w-full h-full bg-gradient-to-br from-emerald-900/40 via-zinc-950 to-cyan-900/40" />
           <div className="absolute inset-0 bg-gradient-to-b from-zinc-950/80 via-zinc-950/20 to-zinc-950" />
         </div>
       )}
@@ -304,13 +367,24 @@ export default function Home() {
                     )}
                     {msg.type === "audio" && msg.fileUrl && (
                       <div className="flex items-center gap-2">
-                        <audio src={msg.fileUrl} controls className="h-8 max-w-full invert hue-rotate-180" />
+                        <audio src={msg.fileUrl} controls className="h-8 max-w-full" />
                       </div>
                     )}
-                    {msg.type === "text" && <span>{msg.content}</span>}
+                    {msg.type === "text" && <span className="whitespace-pre-wrap">{msg.content}</span>}
                   </div>
                 </div>
               ))}
+              {isLoading && (
+                <div className="flex justify-start animate-in fade-in">
+                  <div className="bg-zinc-900/80 backdrop-blur-md border border-zinc-800 rounded-2xl rounded-tl-none px-5 py-3 shadow-lg">
+                    <div className="flex items-center gap-2 text-emerald-400">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="text-sm">Thinking...</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Input Area */}
@@ -375,20 +449,21 @@ export default function Home() {
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                      disabled={isLoading}
                     />
 
                     <Button
                       onClick={handleSendMessage}
                       size="icon"
-                      disabled={!inputValue.trim() && !imagePreview && !audioUrl}
+                      disabled={isLoading || (!inputValue.trim() && !imagePreview && !audioBlob)}
                       className={cn(
                         "h-10 w-10 rounded-2xl shadow-lg transition-all",
-                        (!inputValue.trim() && !imagePreview && !audioUrl)
+                        (isLoading || (!inputValue.trim() && !imagePreview && !audioBlob))
                           ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
                           : "bg-emerald-500 hover:bg-emerald-600 text-zinc-950 shadow-emerald-500/20"
                       )}
                     >
-                      <Send className="w-5 h-5" />
+                      {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                     </Button>
                   </>
                 ) : (
@@ -435,12 +510,6 @@ export default function Home() {
         .scrollbar-hide {
           -ms-overflow-style: none;
           scrollbar-width: none;
-        }
-        audio::-webkit-media-controls-enclosure {
-          background-color: transparent;
-        }
-        audio::-webkit-media-controls-panel {
-          padding: 0;
         }
       `}</style>
     </div>
