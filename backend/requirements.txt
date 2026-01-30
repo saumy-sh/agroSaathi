@@ -1,0 +1,15 @@
+flask
+flask-cors
+python-dotenv
+openai
+langchain
+chromadb
+torch
+torchvision
+transformers
+librosa
+pydub
+soundfile
+requests
+numpy
+pandas
