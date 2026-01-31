@@ -7,6 +7,7 @@ from services.stt_service import transcribe_audio
 from services.translation_service import translate_text
 from services.llm_service import get_llm_response
 from services.tts_service import text_to_speech
+from services.weather_service import get_weather_data
 from utils.helpers import allowed_file, ALLOWED_IMAGE_EXTENSIONS, ALLOWED_AUDIO_EXTENSIONS
 
 api = Blueprint("api", __name__)
@@ -111,3 +112,14 @@ def serve_audio(filename):
     if os.path.exists(file_path):
         return send_file(file_path, mimetype="audio/mpeg")
     return jsonify({"error": "File not found"}), 404
+
+@api.route("/weather", methods=["GET"])
+def get_weather():
+    """Endpoint to fetch weather data for farmers."""
+    lat = request.args.get("lat", 12.9719)
+    lon = request.args.get("lon", 77.5937)
+    print(f"[API] Weather request received for lat={lat}, lon={lon}")
+    data = get_weather_data(lat, lon)
+    if "error" in data:
+        return jsonify(data), 500
+    return jsonify(data)

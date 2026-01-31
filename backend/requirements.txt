@@ -5,3 +5,4 @@ groq
 google-genai
 deep-translator
 edge-tts
+requests

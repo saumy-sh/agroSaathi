@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Mic, Image as ImageIcon, Send, Languages, X, Square, Loader2 } from "lucide-react";
+import { Mic, Image as ImageIcon, Send, Languages, X, Square, Loader2, Thermometer, CloudSun, Droplets, CloudRain } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { t, TranslationKey } from "@/lib/translations";
 import {
   Select,
   SelectContent,
@@ -28,6 +29,7 @@ export default function Home() {
   const [inputValue, setInputValue] = useState("");
   const [language, setLanguage] = useState("en");
   const [isLoading, setIsLoading] = useState(false);
+  const [weather, setWeather] = useState<{ temp: number; humidity: number; precipitation: number } | null>(null);
 
   // Media States
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -46,21 +48,66 @@ export default function Home() {
 
   const languages = [
     { label: "English", value: "en" },
-    { label: "Hindi", value: "hi" },
-    { label: "Marathi", value: "mr" },
-    { label: "Kannada", value: "kn" },
-    { label: "Tamil", value: "ta" },
+    { label: "हिन्दी", value: "hi" },
+    { label: "मराठी", value: "mr" },
+    { label: "ಕನ್ನಡ", value: "kn" },
+    { label: "தமிழ்", value: "ta" },
   ];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    const fetchWeather = async (lat: number, lon: number) => {
+      try {
+        console.log(`[FRONTEND] Fetching weather for lat=${lat}, lon=${lon}...`);
+        const response = await fetch(`${API_BASE}/weather?lat=${lat}&lon=${lon}`);
+        const data = await response.json();
+        console.log("[FRONTEND] Weather data received from backend:", data);
+
+        if (data && data.list && data.list.length > 0) {
+          const current = data.list[0];
+          setWeather({
+            temp: Math.round(current.main.temp),
+            humidity: Math.round(current.main.humidity),
+            precipitation: Math.round((current.pop || 0) * 100)
+          });
+        }
+      } catch (err) {
+        console.error("[FRONTEND] Failed to fetch weather from backend:", err);
+      }
+    };
+
+    const getLocationAndFetch = () => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const { latitude, longitude } = position.coords;
+            fetchWeather(latitude, longitude);
+          },
+          (error) => {
+            console.warn("[FRONTEND] Geolocation failed, using default (Bangalore):", error.message);
+            fetchWeather(12.9716, 77.5946);
+          }
+        );
+      } else {
+        console.warn("[FRONTEND] Geolocation not supported, using default (Bangalore)");
+        fetchWeather(12.9716, 77.5946);
+      }
+    };
+
+    getLocationAndFetch();
+    const interval = setInterval(getLocationAndFetch, 30 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleStartChat = (type: "audio" | "image") => {
     setView("chat");
+    const botGreeting = type === "audio" ? t("welcome_bot_audio", language) : t("welcome_bot_image", language);
     setMessages([{
       role: "bot",
-      content: `Hello! I'm AgroSaathi. How can I help you today with your ${type}?`,
+      content: botGreeting,
       type: "text"
     }]);
     if (type === "image") {
@@ -116,7 +163,7 @@ export default function Home() {
       }, 1000);
     } catch (err) {
       console.error("Error accessing microphone:", err);
-      alert("Microphone access denied or not available.");
+      alert(t("mic_error", language));
     }
   };
 
@@ -152,7 +199,7 @@ export default function Home() {
     if (imagePreview) {
       newMessages.push({
         role: "user",
-        content: "Shared an image",
+        content: t("shared_image", language),
         type: "image",
         fileUrl: imagePreview
       });
@@ -161,7 +208,7 @@ export default function Home() {
     if (audioUrl) {
       newMessages.push({
         role: "user",
-        content: "Shared an audio message",
+        content: t("shared_audio", language),
         type: "audio",
         fileUrl: audioUrl
       });
@@ -222,14 +269,14 @@ export default function Home() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Something went wrong");
+        throw new Error(data.error || t("error_generic", language));
       }
 
       // Add transcribed text message if audio was sent
       if (data.transcribed_text && hadAudioInput) {
         setMessages(prev => [...prev, {
           role: "user",
-          content: `(Transcribed) ${data.transcribed_text}`,
+          content: `${t("transcribed", language)} ${data.transcribed_text}`,
           type: "text",
           englishContent: data.english_user_text,
         }]);
@@ -262,7 +309,7 @@ export default function Home() {
       if (data.audio_url) {
         setMessages(prev => [...prev, {
           role: "bot",
-          content: "Audio response",
+          content: t("audio_response", language),
           type: "audio",
           fileUrl: `${API_BASE.replace('/api', '')}${data.audio_url}`
         }]);
@@ -270,7 +317,7 @@ export default function Home() {
     } catch (error: any) {
       setMessages(prev => [...prev, {
         role: "bot",
-        content: `Error: ${error.message}. Make sure the backend server is running.`,
+        content: t("error_backend", language).replace("{error}", error.message),
         type: "text"
       }]);
     } finally {
@@ -314,6 +361,23 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-4">
+          {weather && (
+            <div className="hidden md:flex items-center gap-4 animate-in fade-in slide-in-from-right-4">
+              <div className="flex items-center gap-1.5 bg-emerald-500/10 rounded-full px-3 py-1.5 border border-emerald-500/20">
+                <Thermometer className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-semibold text-emerald-400">{weather.temp}°C</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-blue-500/10 rounded-full px-3 py-1.5 border border-blue-500/20">
+                <Droplets className="w-4 h-4 text-blue-400" />
+                <span className="text-xs font-semibold text-blue-400">{weather.humidity}%</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-cyan-500/10 rounded-full px-3 py-1.5 border border-cyan-500/20">
+                <CloudRain className="w-4 h-4 text-cyan-400" />
+                <span className="text-xs font-semibold text-cyan-400">{weather.precipitation}%</span>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-2 bg-zinc-900/50 rounded-full px-3 py-1.5 border border-zinc-800">
             <Languages className="w-4 h-4 text-emerald-400" />
             <Select value={language} onValueChange={setLanguage}>
@@ -321,7 +385,7 @@ export default function Home() {
                 className="border-none bg-transparent h-auto p-0 text-xs focus:ring-0 shadow-none gap-1 min-w-[80px]"
                 size="sm"
               >
-                <SelectValue placeholder="Language" />
+                <SelectValue placeholder={t("language", language)} />
               </SelectTrigger>
               <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
                 {languages.map(lang => (
@@ -340,14 +404,13 @@ export default function Home() {
           <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
             <div className="max-w-2xl animate-in fade-in slide-in-from-bottom-8 duration-1000">
               <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-tight">
-                Empowering Farmers with <br />
+                {t("hero_title", language)} <br />
                 <span className="bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 bg-clip-text text-transparent">
-                  Intelligent AI
+                  {t("hero_ai", language)}
                 </span>
               </h1>
               <p className="text-zinc-400 text-lg md:text-xl mb-12 max-w-xl mx-auto leading-relaxed">
-                Your direct companion for agricultural advice, crop diagnosis, and market insights.
-                Available in your native language.
+                {t("hero_subtitle", language)}
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
@@ -357,7 +420,7 @@ export default function Home() {
                   className="h-16 px-8 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-zinc-950 font-semibold gap-3 group transition-all hover:scale-105 active:scale-95 shadow-xl shadow-emerald-500/10"
                 >
                   <Mic className="w-6 h-6 group-hover:animate-pulse" />
-                  <span className="text-lg">Send Audio</span>
+                  <span className="text-lg">{t("send_audio", language)}</span>
                 </Button>
 
                 <Button
@@ -367,7 +430,7 @@ export default function Home() {
                   className="h-16 px-8 rounded-2xl border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-100 font-semibold gap-3 group transition-all hover:scale-105 active:scale-95 backdrop-blur-sm"
                 >
                   <ImageIcon className="w-6 h-6 text-emerald-400" />
-                  <span className="text-lg">Upload Image</span>
+                  <span className="text-lg">{t("upload_image", language)}</span>
                 </Button>
               </div>
             </div>
@@ -411,7 +474,7 @@ export default function Home() {
                   <div className="bg-zinc-900/80 backdrop-blur-md border border-zinc-800 rounded-2xl rounded-tl-none px-5 py-3 shadow-lg">
                     <div className="flex items-center gap-2 text-emerald-400">
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span className="text-sm">Thinking...</span>
+                      <span className="text-sm">{t("thinking", language)}</span>
                     </div>
                   </div>
                 </div>
@@ -437,7 +500,7 @@ export default function Home() {
                 {audioUrl && !isRecording && (
                   <div className="flex items-center gap-3 bg-zinc-900/80 backdrop-blur-md border border-zinc-800 px-4 py-2 rounded-2xl animate-in slide-in-from-left-4">
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                    <span className="text-sm font-medium">Audio Recorded</span>
+                    <span className="text-sm font-medium">{t("audio_recorded", language)}</span>
                     <button
                       onClick={cancelRecording}
                       className="text-zinc-400 hover:text-rose-400 transition-colors"
@@ -476,7 +539,7 @@ export default function Home() {
 
                     <input
                       type="text"
-                      placeholder="Ask anything about farming..."
+                      placeholder={t("placeholder", language)}
                       className="flex-1 bg-transparent border-none outline-none text-zinc-100 placeholder:text-zinc-500 px-2 min-w-0"
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
@@ -508,7 +571,7 @@ export default function Home() {
                       <span className="text-rose-400 font-mono font-bold tracking-wider">
                         {formatTime(recordingSeconds)}
                       </span>
-                      <span className="text-zinc-400 text-sm hidden sm:inline italic">Recording your question...</span>
+                      <span className="text-zinc-400 text-sm hidden sm:inline italic">{t("recording_status", language)}</span>
                     </div>
 
                     <div className="flex gap-2">
@@ -517,14 +580,14 @@ export default function Home() {
                         variant="ghost"
                         className="text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 px-3 h-8 rounded-full text-xs font-bold"
                       >
-                        CANCEL
+                        {t("cancel", language)}
                       </Button>
                       <Button
                         onClick={stopRecording}
                         className="bg-rose-500 hover:bg-rose-600 text-white px-4 h-8 rounded-full flex items-center gap-2 text-xs font-bold shadow-lg shadow-rose-500/20"
                       >
                         <Square className="w-3 h-3 fill-current" />
-                        STOP
+                        {t("stop", language)}
                       </Button>
                     </div>
                   </div>
