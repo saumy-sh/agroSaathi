@@ -8,6 +8,7 @@ from services.translation_service import translate_text
 from services.llm_service import get_llm_response
 from services.tts_service import text_to_speech
 from services.weather_service import get_weather_data
+from services.news_service import get_agriculture_news
 from utils.helpers import allowed_file, ALLOWED_IMAGE_EXTENSIONS, ALLOWED_AUDIO_EXTENSIONS
 
 api = Blueprint("api", __name__)
@@ -120,6 +121,14 @@ def get_weather():
     lon = request.args.get("lon", 77.5937)
     print(f"[API] Weather request received for lat={lat}, lon={lon}")
     data = get_weather_data(lat, lon)
+    if "error" in data:
+        return jsonify(data), 500
+    return jsonify(data)
+
+@api.route("/news", methods=["GET"])
+def get_news():
+    """Endpoint to fetch agriculture news."""
+    data = get_agriculture_news()
     if "error" in data:
         return jsonify(data), 500
     return jsonify(data)

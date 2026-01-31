@@ -22,6 +22,7 @@ export const translations = {
         error_backend: "Error: {error}. Make sure the backend server is running.",
         mic_error: "Microphone access denied or not available.",
         language: "Language",
+        agri_news: "Agriculture News",
     },
     hi: {
         welcome_bot: "नमस्ते! मैं एग्रोसाथी हूँ। आज मैं आपकी कैसे सहायता कर सकता हूँ?",
@@ -46,6 +47,7 @@ export const translations = {
         error_backend: "त्रुटि: {error}। सुनिश्चित करें कि बैकएंड सर्वर चल रहा है।",
         mic_error: "माइक्रोफ़ोन एक्सेस अस्वीकार कर दिया गया या उपलब्ध नहीं है।",
         language: "भाषा",
+        agri_news: "कृषि समाचार",
     },
     mr: {
         welcome_bot: "नमस्कार! मी ऍग्रोसाथी आहे. आज मी तुम्हाला कशी मदत करू शकतो?",
@@ -70,6 +72,7 @@ export const translations = {
         error_backend: "त्रुटि: {error}. बॅकएंड सर्व्हर चालू असल्याची खात्री करा.",
         mic_error: "मायक्रोफोन प्रवेश नाकारला किंवा उपलब्ध नाही.",
         language: "भाषा",
+        agri_news: "कृषि समाचार",
     },
     kn: {
         welcome_bot: "ನಮಸ್ಕಾರ! ನಾನು ಅಗ್ರೋಸಾಥಿ. ಇಂದು ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?",
@@ -94,6 +97,7 @@ export const translations = {
         error_backend: "ದೋಷ: {error}. ಬ್ಯಾಕೆಂಡ್ ಸರ್ವರ್ ಚಾಲನೆಯಲ್ಲಿದೆ ಎಂದು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.",
         mic_error: "ಮೈಕ್ರೊಫೋನ್ ಪ್ರವೇಶವನ್ನು ನಿರಾಕರಿಸಲಾಗಿದೆ ಅಥವಾ ಲಭ್ಯವಿಲ್ಲ.",
         language: "ಭಾಷೆ",
+        agri_news: "ಕೃಷಿ ಸುದ್ದಿ",
     },
     ta: {
         welcome_bot: "வணக்கம்! நான் அக்ரோசாதி. இன்று நான் உங்களுக்கு எப்படி உதவ முடியும்?",

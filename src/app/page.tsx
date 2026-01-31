@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Mic, Image as ImageIcon, Send, Languages, X, Square, Loader2, Thermometer, CloudSun, Droplets, CloudRain } from "lucide-react";
+import { Mic, Image as ImageIcon, Send, Languages, X, Square, Loader2, Thermometer, CloudSun, Droplets, CloudRain, Newspaper } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { t, TranslationKey } from "@/lib/translations";
 import {
@@ -30,6 +30,9 @@ export default function Home() {
   const [language, setLanguage] = useState("en");
   const [isLoading, setIsLoading] = useState(false);
   const [weather, setWeather] = useState<{ temp: number; humidity: number; precipitation: number } | null>(null);
+  const [showNews, setShowNews] = useState(false);
+  const [news, setNews] = useState<any[]>([]);
+  const [isLoadingNews, setIsLoadingNews] = useState(false);
 
   // Media States
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -114,6 +117,22 @@ export default function Home() {
       setTimeout(() => fileInputRef.current?.click(), 100);
     } else if (type === "audio") {
       setTimeout(() => startRecording(), 100);
+    }
+  };
+
+  const fetchNews = async () => {
+    setIsLoadingNews(true);
+    setShowNews(true);
+    try {
+      const response = await fetch(`${API_BASE}/news`);
+      const data = await response.json();
+      if (data && data.articles) {
+        setNews(data.articles);
+      }
+    } catch (err) {
+      console.error("[FRONTEND] Failed to fetch news:", err);
+    } finally {
+      setIsLoadingNews(false);
     }
   };
 
@@ -378,6 +397,16 @@ export default function Home() {
             </div>
           )}
 
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={fetchNews}
+            className="flex items-center gap-2 bg-zinc-900/50 rounded-full px-3 py-1.5 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 transition-all"
+          >
+            <Newspaper className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs font-semibold">{t("agri_news", language)}</span>
+          </Button>
+
           <div className="flex items-center gap-2 bg-zinc-900/50 rounded-full px-3 py-1.5 border border-zinc-800">
             <Languages className="w-4 h-4 text-emerald-400" />
             <Select value={language} onValueChange={setLanguage}>
@@ -597,6 +626,96 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {/* News Drawer */}
+      {showNews && (
+        <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-zinc-950 border-l border-zinc-800 z-[100] flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
+          <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
+            <div className="flex items-center gap-2">
+              <Newspaper className="w-5 h-5 text-emerald-400" />
+              <h2 className="font-bold text-zinc-100">{t("agri_news", language)}</h2>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setShowNews(false)} className="rounded-full">
+              <X className="w-5 h-5 text-zinc-400" />
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {isLoadingNews ? (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-500">
+                <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+                <p>{t("thinking", language)}</p>
+              </div>
+            ) : news.length > 0 ? (
+              news.map((item, idx) => (
+                <a
+                  key={idx}
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800/50 hover:border-emerald-500/30 hover:bg-zinc-900/80 transition-all group relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Send className="w-3 h-3 text-emerald-400 -rotate-45" />
+                  </div>
+
+                  {item.urlToImage && (
+                    <div className="relative h-44 w-full mb-4 overflow-hidden rounded-xl border border-zinc-800/50">
+                      <img
+                        src={item.urlToImage}
+                        alt=""
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/60 to-transparent" />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-400 uppercase tracking-widest">
+                      <span className="bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                        {item.source?.name || "News"}
+                      </span>
+                      <span className="text-zinc-500">•</span>
+                      <span className="text-zinc-500">{new Date(item.publishedAt).toLocaleDateString()}</span>
+                    </div>
+
+                    <h3 className="font-bold text-zinc-100 group-hover:text-emerald-400 transition-colors line-clamp-2 leading-snug">
+                      {item.title}
+                    </h3>
+
+                    <p className="text-zinc-400 text-sm line-clamp-3 leading-relaxed">
+                      {item.description}
+                    </p>
+
+                    {item.author && (
+                      <div className="pt-2 flex items-center gap-2 border-t border-zinc-800/50 mt-2">
+                        <div className="w-5 h-5 rounded-full bg-zinc-800 flex items-center justify-center text-[8px] font-bold text-emerald-400 border border-zinc-700">
+                          {item.author.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-[11px] text-zinc-500 italic truncate">
+                          By {item.author}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </a>
+              ))
+            ) : (
+              <div className="text-center text-zinc-500 mt-20">
+                <Newspaper className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                <p>No news available at the moment.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Overlay */}
+      {showNews && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] sm:z-[99] animate-in fade-in transition-all"
+          onClick={() => setShowNews(false)}
+        />
+      )}
 
       <style jsx global>{`
         .scrollbar-hide::-webkit-scrollbar {
