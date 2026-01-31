@@ -39,3 +39,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Large files & Models
+backend/models/*.nemo
+backend/database/*.pdf
+backend/database/*.db
+
+# OS files
+.DS_Store
+Thumbs.db

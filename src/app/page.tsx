@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Mic, Image as ImageIcon, Send, Paperclip, Languages, X, Square, Play, Pause } from "lucide-react";
+import { Mic, Image as ImageIcon, Send, Paperclip, Languages, X, Square, Play, Pause, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -37,6 +37,9 @@ export default function Home() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
 
   const languages = [
     { label: "English", value: "en" },
@@ -134,18 +137,21 @@ export default function Home() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputValue.trim() && !imagePreview && !audioUrl) return;
 
     const newMessages: Message[] = [];
+    const formData = new FormData();
+    formData.append("language", language);
 
-    if (imagePreview) {
+    if (imagePreview && selectedImage) {
       newMessages.push({
         role: "user",
         content: "Shared an image",
         type: "image",
         fileUrl: imagePreview
       });
+      formData.append("image", selectedImage);
       removeImage();
     }
 
@@ -156,6 +162,14 @@ export default function Home() {
         type: "audio",
         fileUrl: audioUrl
       });
+
+      // Convert recorded blob url back to blob locally isn't straightforward if we don't keep the blob.
+      // But we have audioChunksRef.
+      if (audioChunksRef.current.length > 0) {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/wav" });
+        formData.append("audio", audioBlob, "recording.wav");
+      }
+
       setAudioUrl(null);
       setRecordingSeconds(0);
     }
@@ -166,19 +180,77 @@ export default function Home() {
         content: inputValue,
         type: "text"
       });
+      formData.append("text", inputValue);
       setInputValue("");
     }
 
     setMessages(prev => [...prev, ...newMessages]);
+    setIsLoading(true);
 
-    // Simulate bot response
-    setTimeout(() => {
+    try {
+      const response = await fetch("http://localhost:5000/api/chat", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      // 1. Show user transcription if available (and if they sent audio)
+      if (data.user_query_transcribed && !inputValue.trim() && audioChunksRef.current.length > 0) {
+        setMessages(prev => [...prev, {
+          role: "user",
+          content: `(Transcribed): ${data.user_query_transcribed}`,
+          type: "text"
+        }]);
+      }
+
+      // 2. Show Disease Detection Info if available
+      if (data.disease_detected) {
+        setMessages(prev => [...prev, {
+          role: "bot",
+          content: `Disease Detected: ${data.disease_detected}`,
+          type: "text"
+        }]);
+      }
+
+      // 3. Show Bot Response
+      if (data.response_text) {
+        setMessages(prev => [...prev, {
+          role: "bot",
+          content: data.response_text,
+          type: "text"
+        }]);
+      }
+
+      // 4. Play Audio Response
+      if (data.audio_url) {
+        const fullAudioUrl = `http://localhost:5000${data.audio_url}`;
+        const audio = new Audio(fullAudioUrl);
+        audio.play().catch(e => console.error("Audio play failed", e));
+
+        setMessages(prev => [...prev, {
+          role: "bot",
+          content: "Audio Response",
+          type: "audio",
+          fileUrl: fullAudioUrl
+        }]);
+      }
+
+    } catch (error) {
+      console.error("Chat error:", error);
       setMessages(prev => [...prev, {
         role: "bot",
-        content: "I received your message! I'm analyzing the content to provide you with the best agricultural advice. (This is a frontend demo)",
+        content: "Sorry, I encountered an error connecting to the server.",
         type: "text"
       }]);
-    }, 1000);
+    } finally {
+      setIsLoading(false);
+      audioChunksRef.current = []; // Reset audio chunks after sending
+    }
   };
 
   return (
@@ -380,7 +452,7 @@ export default function Home() {
                     <Button
                       onClick={handleSendMessage}
                       size="icon"
-                      disabled={!inputValue.trim() && !imagePreview && !audioUrl}
+                      disabled={(!inputValue.trim() && !imagePreview && !audioUrl) || isLoading}
                       className={cn(
                         "h-10 w-10 rounded-2xl shadow-lg transition-all",
                         (!inputValue.trim() && !imagePreview && !audioUrl)
@@ -388,7 +460,7 @@ export default function Home() {
                           : "bg-emerald-500 hover:bg-emerald-600 text-zinc-950 shadow-emerald-500/20"
                       )}
                     >
-                      <Send className="w-5 h-5" />
+                      {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                     </Button>
                   </>
                 ) : (
