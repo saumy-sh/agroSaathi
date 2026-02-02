@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 interface Message {
   role: "user" | "bot";
@@ -214,8 +214,6 @@ export default function Home() {
     if (!inputValue.trim() && !imagePreview && !audioBlob) return;
 
     const newMessages: Message[] = [];
-    const formData = new FormData();
-    formData.append("language", language);
 
     if (imagePreview && selectedImage) {
       newMessages.push({
