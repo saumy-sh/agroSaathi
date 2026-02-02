@@ -256,20 +256,20 @@ export default function Home() {
       }));
 
     // Build form data
-    const formData = new FormData();
-    formData.append("language", language);
-    formData.append("conversation_history", JSON.stringify(history));
+    const messageFormData = new FormData();
+    messageFormData.append("language", language);
+    messageFormData.append("conversation_history", JSON.stringify(history));
 
     if (inputValue.trim()) {
-      formData.append("text", inputValue);
+      messageFormData.append("text", inputValue);
     }
 
     if (audioBlob) {
-      formData.append("audio", audioBlob, "recording.webm");
+      messageFormData.append("audio", audioBlob, "recording.webm");
     }
 
     if (selectedImage) {
-      formData.append("image", selectedImage);
+      messageFormData.append("image", selectedImage);
     }
 
     // Clear inputs
@@ -282,7 +282,7 @@ export default function Home() {
     try {
       const response = await fetch(`${API_BASE}/chat`, {
         method: "POST",
-        body: formData,
+        body: messageFormData,
       });
 
       const data = await response.json();
