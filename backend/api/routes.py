@@ -1,108 +1,134 @@
-from flask import Blueprint, request, jsonify, send_from_directory
-from werkzeug.utils import secure_filename
 import os
-from config import Config
-from services.stt_service import stt_service
-from services.translation_service import translation_service
-from services.image_service import MobileNetV2Predictor
-from services.rag_service import rag_service
-from services.llm_service import llm_service
-from services.tts_service import tts_service
+import uuid
+import json
+from flask import Blueprint, request, jsonify, send_file
+from config import UPLOAD_FOLDER
+from services.stt_service import transcribe_audio
+from services.translation_service import translate_text
+from services.llm_service import get_llm_response
+from services.tts_service import text_to_speech
+from services.weather_service import get_weather_data
+from services.news_service import get_agriculture_news
+from utils.helpers import allowed_file, ALLOWED_IMAGE_EXTENSIONS, ALLOWED_AUDIO_EXTENSIONS
 
-api_bp = Blueprint('api', __name__)
+api = Blueprint("api", __name__)
 
-# Initialize Image Service (Model path assumed relative or absolute per user setup)
-IMAGE_MODEL_PATH = os.path.join(Config.MODELS_DIR, "best_finetuned_model.pth")
-if os.path.exists(IMAGE_MODEL_PATH):
-    image_predictor = MobileNetV2Predictor(model_path=IMAGE_MODEL_PATH)
-else:
-    print(f"WARNING: Image model not found at {IMAGE_MODEL_PATH}")
-    image_predictor = None
 
-@api_bp.route('/chat', methods=['POST'])
+@api.route("/chat", methods=["POST"])
 def chat():
+    """
+    Main chat endpoint. Accepts text, audio, and/or image.
+    Flow: STT -> Translate to EN -> LLM (with image if any) -> Translate back -> TTS
+    """
+    language = request.form.get("language", "en")
+    text = request.form.get("text", "").strip()
+    audio_file = request.files.get("audio")
+    image_file = request.files.get("image")
+    conversation_history = json.loads(request.form.get("conversation_history", "[]"))
+
+    print(f"\n{'='*60}")
+    print(f"[REQUEST] Language: {language}")
+    print(f"[REQUEST] Text: '{text}'")
+    print(f"[REQUEST] Audio: {audio_file.filename if audio_file else 'None'}")
+    print(f"[REQUEST] Image: {image_file.filename if image_file else 'None'}")
+
+    image_path = None
+    audio_path = None
+
     try:
-        # 1. Parse Inputs
-        language = request.form.get('language', 'en') # e.g., 'hi', 'mr', 'ka'
-        audio_file = request.files.get('audio')
-        image_file = request.files.get('image')
-        text_input = request.form.get('text') # Optional fallback input
-        
-        user_query_indic = ""
-        
-        # 2. Handle Audio Input (STT)
-        if audio_file:
-            filename = secure_filename(audio_file.filename)
-            audio_path = os.path.join(Config.TEMP_UPLOAD_DIR, filename)
-            audio_file.save(audio_path)
-            
-            # STT: Audio -> Indic Text
-            user_query_indic = stt_service.transcribe(audio_path, lang_id=language)
-        elif text_input:
-            user_query_indic = text_input
-        else:
-            return jsonify({"error": "No audio or text input provided"}), 400
-
-        # 3. Handle Image Input (Classification)
-        disease_info = "No image provided."
-        disease_class = None
-        if image_file and image_predictor:
-            filename = secure_filename(image_file.filename)
-            image_path = os.path.join(Config.TEMP_UPLOAD_DIR, filename)
+        # Save image if provided
+        if image_file and image_file.filename:
+            ext = image_file.filename.rsplit(".", 1)[-1].lower() if "." in image_file.filename else "jpg"
+            image_filename = f"img_{uuid.uuid4().hex}.{ext}"
+            image_path = os.path.join(UPLOAD_FOLDER, image_filename)
             image_file.save(image_path)
-            
-            # Predict
-            result = image_predictor.predict_single_image(image_path)
-            if 'error' not in result:
-                disease_class = result['predicted_class']
-                confidence = result['confidence']
-                disease_info = f"Detected Class: {disease_class} (Confidence: {confidence:.2f})"
-            else:
-                disease_info = f"Error analyzing image: {result['error']}"
+            print(f"[IMAGE] Saved to {image_path}")
 
-        # 4. Translation (Indic -> English)
-        if language != 'en':
-            user_query_eng = translation_service.translate_to_en(user_query_indic, spoken_lang=language)
-        else:
-            user_query_eng = user_query_indic
+        # Save and transcribe audio if provided
+        if audio_file and audio_file.filename:
+            ext = audio_file.filename.rsplit(".", 1)[-1].lower() if "." in audio_file.filename else "webm"
+            audio_filename = f"audio_{uuid.uuid4().hex}.{ext}"
+            audio_path = os.path.join(UPLOAD_FOLDER, audio_filename)
+            audio_file.save(audio_path)
+            print(f"[STT] Transcribing audio...")
+            text = transcribe_audio(audio_path, language)
+            print(f"[STT] Transcribed: '{text}'")
 
-        # 5. RAG Retrieval
-        # Combine user query with disease class for better context search
-        search_query = f"{user_query_eng} {disease_class if disease_class else ''}"
-        rag_context = rag_service.search(search_query)
+        if not text:
+            print(f"[ERROR] No text or audio provided")
+            return jsonify({"error": "No text or audio provided"}), 400
 
-        # 6. LLM Reasoning
-        llm_response_eng = llm_service.generate_response(
-            context=rag_context,
-            disease_info=disease_info,
-            user_query=user_query_eng
-        )
+        # Translate user text to English
+        print(f"[TRANSLATE] {language} -> en")
+        english_text = translate_text(text, language, "en")
+        print(f"[TRANSLATE] Result: '{english_text}'")
 
-        # 7. Translation (English -> Indic)
-        if language != 'en':
-            llm_response_indic = translation_service.translate_to_indic(llm_response_eng, target_lang=language)
-        else:
-            llm_response_indic = llm_response_eng
+        # Get LLM response (with image if provided)
+        print(f"[LLM] Sending to Gemini (image: {bool(image_path)})...")
+        llm_response = get_llm_response(english_text, image_path, conversation_history)
+        print(f"[LLM] Response: '{llm_response[:200]}...'")
 
-        # 8. TTS (Indic Text -> Audio)
-        # Using a fixed description for now, can be made dynamic if needed
-        audio_output_path = tts_service.generate_audio(llm_response_indic)
-        audio_filename = os.path.basename(audio_output_path)
-        audio_url = f"/api/audio/{audio_filename}"
+        # Translate response back to user's language
+        print(f"[TRANSLATE] en -> {language}")
+        translated_response = translate_text(llm_response, "en", language)
+        print(f"[TRANSLATE] Result: '{translated_response[:200]}...'")
+
+        # Generate TTS audio
+        print(f"[TTS] Generating audio in '{language}'...")
+        tts_path = text_to_speech(translated_response, language)
+        tts_filename = os.path.basename(tts_path)
+        print(f"[TTS] Saved to {tts_path}")
+
+        print(f"[DONE] Request completed successfully")
+        print(f"{'='*60}\n")
 
         return jsonify({
-            "user_query_transcribed": user_query_indic,
-            "user_query_english": user_query_eng,
-            "disease_detected": disease_class,
-            "context_retrieved": True if rag_context else False,
-            "response_text": llm_response_indic,
-            "audio_url": audio_url
+            "transcribed_text": text,
+            "response_text": translated_response,
+            "audio_url": f"/api/audio/{tts_filename}",
+            "english_user_text": english_text,
+            "english_response_text": llm_response,
         })
 
     except Exception as e:
-        print(f"API Error: {e}")
+        import traceback
+        print(f"[ERROR] {str(e)}")
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
-@api_bp.route('/audio/<filename>')
+    finally:
+        # Clean up uploaded files
+        for path in [audio_path, image_path]:
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+
+@api.route("/audio/<filename>", methods=["GET"])
 def serve_audio(filename):
-    return send_from_directory(Config.TEMP_OUTPUT_DIR, filename)
+    """Serve generated TTS audio files."""
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    if os.path.exists(file_path):
+        return send_file(file_path, mimetype="audio/mpeg")
+    return jsonify({"error": "File not found"}), 404
+
+@api.route("/weather", methods=["GET"])
+def get_weather():
+    """Endpoint to fetch weather data for farmers."""
+    lat = request.args.get("lat", 12.9719)
+    lon = request.args.get("lon", 77.5937)
+    print(f"[API] Weather request received for lat={lat}, lon={lon}")
+    data = get_weather_data(lat, lon)
+    if "error" in data:
+        return jsonify(data), 500
+    return jsonify(data)
+
+@api.route("/news", methods=["GET"])
+def get_news():
+    """Endpoint to fetch agriculture news."""
+    data = get_agriculture_news()
+    if "error" in data:
+        return jsonify(data), 500
+    return jsonify(data)

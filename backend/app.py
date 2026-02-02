@@ -1,24 +1,16 @@
+import sys
+import os
+
+# Add backend directory to path so services can import config
+sys.path.insert(0, os.path.dirname(__file__))
+
 from flask import Flask
 from flask_cors import CORS
-from api.routes import api_bp
-from config import Config
+from api.routes import api
 
-def create_app():
-    app = Flask(__name__)
-    CORS(app) # Enable CORS for all routes (important for frontend integration)
-    
-    app.config.from_object(Config)
-
-    # Register Blueprints
-    app.register_blueprint(api_bp, url_prefix='/api')
-
-    @app.route('/')
-    def health_check():
-        return {"status": "AgroSaathi Backend is running"}
-
-    return app
-
-app = create_app()
+app = Flask(__name__)
+CORS(app)
+app.register_blueprint(api, url_prefix="/api")
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(debug=True, port=5000)

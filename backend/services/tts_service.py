@@ -1,45 +1,32 @@
-import torch
-from parler_tts import ParlerTTSForConditionalGeneration
-from transformers import AutoTokenizer
-import soundfile as sf
-import uuid
+import asyncio
+import edge_tts
 import os
+import uuid
+from config import UPLOAD_FOLDER
 
-class TTSService:
-    def __init__(self, output_dir="temp/outputs"):
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.model_name = "ai4bharat/indic-parler-tts"
-        
-        print(f"Loading ParlerTTS model from {self.model_name} on {self.device}...")
-        self.model = ParlerTTSForConditionalGeneration.from_pretrained(self.model_name).to(self.device)
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self.description_tokenizer = AutoTokenizer.from_pretrained(self.model.config.text_encoder._name_or_path)
-        
-        self.output_dir = output_dir
-        os.makedirs(self.output_dir, exist_ok=True)
+VOICE_MAP = {
+    "en": "en-IN-NeerjaNeural",
+    "hi": "hi-IN-SwaraNeural",
+    "mr": "mr-IN-AarohiNeural",
+    "kn": "kn-IN-SapnaNeural",
+    "ta": "ta-IN-PallaviNeural",
+}
 
-    def generate_audio(self, text, description=None):
-        """
-        Generate audio from text using ParlerTTS.
-        """
-        if not description:
-            # Default description for high quality output
-            description = "A female speaker delivers a slightly expressive and animated speech with a moderate speed and pitch. The recording is of very high quality, with the speaker's voice sounding clear and very close up."
+async def _synthesize(text: str, language: str, output_path: str):
+    voice = VOICE_MAP.get(language, "en-IN-NeerjaNeural")
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(output_path)
 
-        input_ids = self.description_tokenizer(description, return_tensors="pt").input_ids.to(self.device)
-        prompt_input_ids = self.tokenizer(text, return_tensors="pt").input_ids.to(self.device)
+def text_to_speech(text: str, language: str = "en") -> str:
+    """Convert text to speech using Edge TTS. Returns path to audio file."""
+    filename = f"tts_{uuid.uuid4().hex}.mp3"
+    output_path = os.path.join(UPLOAD_FOLDER, filename)
 
-        with torch.no_grad():
-            generation = self.model.generate(input_ids=input_ids, prompt_input_ids=prompt_input_ids)
-        
-        audio_arr = generation.cpu().numpy().squeeze()
-        
-        # Save to file
-        filename = f"{uuid.uuid4()}.wav"
-        filepath = os.path.join(self.output_dir, filename)
-        
-        sf.write(filepath, audio_arr, self.model.config.sampling_rate)
-        
-        return filepath
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_synthesize(text, language, output_path))
+    finally:
+        loop.close()
 
-tts_service = TTSService()
+    return output_path

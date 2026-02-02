@@ -41,18 +41,12 @@ yarn-error.log*
 next-env.d.ts
 
 # Python
-__pycache__/
+backend/venv/
+backend/Lib/
+backend/Scripts/
+backend/pyvenv.cfg
+backend/uploads/
+**/__pycache__/
 *.py[cod]
 *$py.class
-.venv/
-venv/
-ENV/
 
-# Large files & Models
-backend/models/*.nemo
-backend/database/*.pdf
-backend/database/*.db
-
-# OS files
-.DS_Store
-Thumbs.db

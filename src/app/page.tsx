@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Mic, Image as ImageIcon, Send, Paperclip, Languages, X, Square, Play, Pause, Loader2 } from "lucide-react";
+import { Mic, Image as ImageIcon, Send, Languages, X, Square, Loader2, Thermometer, CloudSun, Droplets, CloudRain, Newspaper } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { t, TranslationKey } from "@/lib/translations";
 import {
   Select,
   SelectContent,
@@ -12,11 +13,14 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+
 interface Message {
   role: "user" | "bot";
   content: string;
   type: "text" | "image" | "audio";
   fileUrl?: string;
+  englishContent?: string;
 }
 
 export default function Home() {
@@ -24,11 +28,17 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [language, setLanguage] = useState("en");
+  const [isLoading, setIsLoading] = useState(false);
+  const [weather, setWeather] = useState<{ temp: number; humidity: number; precipitation: number } | null>(null);
+  const [showNews, setShowNews] = useState(false);
+  const [news, setNews] = useState<any[]>([]);
+  const [isLoadingNews, setIsLoadingNews] = useState(false);
 
   // Media States
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
@@ -37,23 +47,70 @@ export default function Home() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const languages = [
     { label: "English", value: "en" },
-    { label: "Hindi", value: "hi" },
-    { label: "Marathi", value: "mr" },
-    { label: "Kannada", value: "kn" },
-    { label: "Tamil", value: "ta" },
+    { label: "हिन्दी", value: "hi" },
+    { label: "मराठी", value: "mr" },
+    { label: "ಕನ್ನಡ", value: "kn" },
+    { label: "தமிழ்", value: "ta" },
   ];
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  useEffect(() => {
+    const fetchWeather = async (lat: number, lon: number) => {
+      try {
+        console.log(`[FRONTEND] Fetching weather for lat=${lat}, lon=${lon}...`);
+        const response = await fetch(`${API_BASE}/weather?lat=${lat}&lon=${lon}`);
+        const data = await response.json();
+        console.log("[FRONTEND] Weather data received from backend:", data);
+
+        if (data && data.list && data.list.length > 0) {
+          const current = data.list[0];
+          setWeather({
+            temp: Math.round(current.main.temp),
+            humidity: Math.round(current.main.humidity),
+            precipitation: Math.round((current.pop || 0) * 100)
+          });
+        }
+      } catch (err) {
+        console.error("[FRONTEND] Failed to fetch weather from backend:", err);
+      }
+    };
+
+    const getLocationAndFetch = () => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const { latitude, longitude } = position.coords;
+            fetchWeather(latitude, longitude);
+          },
+          (error) => {
+            console.warn("[FRONTEND] Geolocation failed, using default (Bangalore):", error.message);
+            fetchWeather(12.9716, 77.5946);
+          }
+        );
+      } else {
+        console.warn("[FRONTEND] Geolocation not supported, using default (Bangalore)");
+        fetchWeather(12.9716, 77.5946);
+      }
+    };
+
+    getLocationAndFetch();
+    const interval = setInterval(getLocationAndFetch, 30 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleStartChat = (type: "audio" | "image") => {
     setView("chat");
+    const botGreeting = type === "audio" ? t("welcome_bot_audio", language) : t("welcome_bot_image", language);
     setMessages([{
       role: "bot",
-      content: `Hello! I'm AgroSaathi. How can I help you today with your ${type}?`,
+      content: botGreeting,
       type: "text"
     }]);
     if (type === "image") {
@@ -63,7 +120,22 @@ export default function Home() {
     }
   };
 
-  // Image Handling
+  const fetchNews = async () => {
+    setIsLoadingNews(true);
+    setShowNews(true);
+    try {
+      const response = await fetch(`${API_BASE}/news`);
+      const data = await response.json();
+      if (data && data.articles) {
+        setNews(data.articles);
+      }
+    } catch (err) {
+      console.error("[FRONTEND] Failed to fetch news:", err);
+    } finally {
+      setIsLoadingNews(false);
+    }
+  };
+
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -82,7 +154,6 @@ export default function Home() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // Audio Recording
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -97,9 +168,9 @@ export default function Home() {
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/wav" });
-        const url = URL.createObjectURL(audioBlob);
-        setAudioUrl(url);
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        setAudioBlob(blob);
+        setAudioUrl(URL.createObjectURL(blob));
         stream.getTracks().forEach(track => track.stop());
       };
 
@@ -111,7 +182,7 @@ export default function Home() {
       }, 1000);
     } catch (err) {
       console.error("Error accessing microphone:", err);
-      alert("Microphone access denied or not available.");
+      alert(t("mic_error", language));
     }
   };
 
@@ -127,6 +198,7 @@ export default function Home() {
 
   const cancelRecording = () => {
     stopRecording();
+    setAudioBlob(null);
     setAudioUrl(null);
     setRecordingSeconds(0);
   };
@@ -138,7 +210,8 @@ export default function Home() {
   };
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() && !imagePreview && !audioUrl) return;
+    if (isLoading) return;
+    if (!inputValue.trim() && !imagePreview && !audioBlob) return;
 
     const newMessages: Message[] = [];
     const formData = new FormData();
@@ -147,31 +220,19 @@ export default function Home() {
     if (imagePreview && selectedImage) {
       newMessages.push({
         role: "user",
-        content: "Shared an image",
+        content: t("shared_image", language),
         type: "image",
         fileUrl: imagePreview
       });
-      formData.append("image", selectedImage);
-      removeImage();
     }
 
     if (audioUrl) {
       newMessages.push({
         role: "user",
-        content: "Shared an audio message",
+        content: t("shared_audio", language),
         type: "audio",
         fileUrl: audioUrl
       });
-
-      // Convert recorded blob url back to blob locally isn't straightforward if we don't keep the blob.
-      // But we have audioChunksRef.
-      if (audioChunksRef.current.length > 0) {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/wav" });
-        formData.append("audio", audioBlob, "recording.wav");
-      }
-
-      setAudioUrl(null);
-      setRecordingSeconds(0);
     }
 
     if (inputValue.trim()) {
@@ -180,76 +241,108 @@ export default function Home() {
         content: inputValue,
         type: "text"
       });
-      formData.append("text", inputValue);
-      setInputValue("");
     }
+
+    const hadTextInput = inputValue.trim().length > 0;
+    const hadAudioInput = !!audioBlob;
 
     setMessages(prev => [...prev, ...newMessages]);
     setIsLoading(true);
 
+    // Build conversation history from past text messages (in English)
+    const history = messages
+      .filter(m => m.type === "text" && m.englishContent)
+      .map(m => ({
+        role: m.role === "user" ? "user" : "assistant",
+        content: m.englishContent!,
+      }));
+
+    // Build form data
+    const formData = new FormData();
+    formData.append("language", language);
+    formData.append("conversation_history", JSON.stringify(history));
+
+    if (inputValue.trim()) {
+      formData.append("text", inputValue);
+    }
+
+    if (audioBlob) {
+      formData.append("audio", audioBlob, "recording.webm");
+    }
+
+    if (selectedImage) {
+      formData.append("image", selectedImage);
+    }
+
+    // Clear inputs
+    setInputValue("");
+    removeImage();
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setRecordingSeconds(0);
+
     try {
-      const response = await fetch("http://localhost:5000/api/chat", {
+      const response = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.statusText}`);
-      }
-
       const data = await response.json();
 
-      // 1. Show user transcription if available (and if they sent audio)
-      if (data.user_query_transcribed && !inputValue.trim() && audioChunksRef.current.length > 0) {
+      if (!response.ok) {
+        throw new Error(data.error || t("error_generic", language));
+      }
+
+      // Add transcribed text message if audio was sent
+      if (data.transcribed_text && hadAudioInput) {
         setMessages(prev => [...prev, {
           role: "user",
-          content: `(Transcribed): ${data.user_query_transcribed}`,
-          type: "text"
+          content: `${t("transcribed", language)} ${data.transcribed_text}`,
+          type: "text",
+          englishContent: data.english_user_text,
         }]);
       }
 
-      // 2. Show Disease Detection Info if available
-      if (data.disease_detected) {
-        setMessages(prev => [...prev, {
-          role: "bot",
-          content: `Disease Detected: ${data.disease_detected}`,
-          type: "text"
-        }]);
+      // Tag the user's text message with english content for history
+      if (hadTextInput) {
+        setMessages(prev => {
+          const updated = [...prev];
+          // Find the last user text message and add englishContent
+          for (let i = updated.length - 1; i >= 0; i--) {
+            if (updated[i].role === "user" && updated[i].type === "text" && !updated[i].englishContent) {
+              updated[i] = { ...updated[i], englishContent: data.english_user_text };
+              break;
+            }
+          }
+          return updated;
+        });
       }
 
-      // 3. Show Bot Response
-      if (data.response_text) {
-        setMessages(prev => [...prev, {
-          role: "bot",
-          content: data.response_text,
-          type: "text"
-        }]);
-      }
-
-      // 4. Play Audio Response
-      if (data.audio_url) {
-        const fullAudioUrl = `http://localhost:5000${data.audio_url}`;
-        const audio = new Audio(fullAudioUrl);
-        audio.play().catch(e => console.error("Audio play failed", e));
-
-        setMessages(prev => [...prev, {
-          role: "bot",
-          content: "Audio Response",
-          type: "audio",
-          fileUrl: fullAudioUrl
-        }]);
-      }
-
-    } catch (error) {
-      console.error("Chat error:", error);
+      // Add bot text response
       setMessages(prev => [...prev, {
         role: "bot",
-        content: "Sorry, I encountered an error connecting to the server.",
+        content: data.response_text,
+        type: "text",
+        englishContent: data.english_response_text,
+      }]);
+
+      // Add bot audio response
+      if (data.audio_url) {
+        setMessages(prev => [...prev, {
+          role: "bot",
+          content: t("audio_response", language),
+          type: "audio",
+          fileUrl: `${API_BASE.replace('/api', '')}${data.audio_url}`
+        }]);
+      }
+    } catch (error: any) {
+      setMessages(prev => [...prev, {
+        role: "bot",
+        content: t("error_backend", language).replace("{error}", error.message),
         type: "text"
       }]);
     } finally {
       setIsLoading(false);
-      audioChunksRef.current = []; // Reset audio chunks after sending
     }
   };
 
@@ -269,14 +362,10 @@ export default function Home() {
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/20 blur-[120px] rounded-full" />
       </div>
 
-      {/* Background Image (Landing only) */}
+      {/* Background gradient (Landing only) */}
       {view === "landing" && (
         <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
-          <img
-            src="/agri_background.png"
-            alt="Agricultural background"
-            className="w-full h-full object-cover"
-          />
+          <div className="w-full h-full bg-gradient-to-br from-emerald-900/40 via-zinc-950 to-cyan-900/40" />
           <div className="absolute inset-0 bg-gradient-to-b from-zinc-950/80 via-zinc-950/20 to-zinc-950" />
         </div>
       )}
@@ -293,6 +382,33 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-4">
+          {weather && (
+            <div className="hidden md:flex items-center gap-4 animate-in fade-in slide-in-from-right-4">
+              <div className="flex items-center gap-1.5 bg-emerald-500/10 rounded-full px-3 py-1.5 border border-emerald-500/20">
+                <Thermometer className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-semibold text-emerald-400">{weather.temp}°C</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-blue-500/10 rounded-full px-3 py-1.5 border border-blue-500/20">
+                <Droplets className="w-4 h-4 text-blue-400" />
+                <span className="text-xs font-semibold text-blue-400">{weather.humidity}%</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-cyan-500/10 rounded-full px-3 py-1.5 border border-cyan-500/20">
+                <CloudRain className="w-4 h-4 text-cyan-400" />
+                <span className="text-xs font-semibold text-cyan-400">{weather.precipitation}%</span>
+              </div>
+            </div>
+          )}
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={fetchNews}
+            className="flex items-center gap-2 bg-zinc-900/50 rounded-full px-3 py-1.5 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 transition-all"
+          >
+            <Newspaper className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs font-semibold">{t("agri_news", language)}</span>
+          </Button>
+
           <div className="flex items-center gap-2 bg-zinc-900/50 rounded-full px-3 py-1.5 border border-zinc-800">
             <Languages className="w-4 h-4 text-emerald-400" />
             <Select value={language} onValueChange={setLanguage}>
@@ -300,7 +416,7 @@ export default function Home() {
                 className="border-none bg-transparent h-auto p-0 text-xs focus:ring-0 shadow-none gap-1 min-w-[80px]"
                 size="sm"
               >
-                <SelectValue placeholder="Language" />
+                <SelectValue placeholder={t("language", language)} />
               </SelectTrigger>
               <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
                 {languages.map(lang => (
@@ -319,14 +435,13 @@ export default function Home() {
           <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
             <div className="max-w-2xl animate-in fade-in slide-in-from-bottom-8 duration-1000">
               <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-tight">
-                Empowering Farmers with <br />
+                {t("hero_title", language)} <br />
                 <span className="bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 bg-clip-text text-transparent">
-                  Intelligent AI
+                  {t("hero_ai", language)}
                 </span>
               </h1>
               <p className="text-zinc-400 text-lg md:text-xl mb-12 max-w-xl mx-auto leading-relaxed">
-                Your direct companion for agricultural advice, crop diagnosis, and market insights.
-                Available in your native language.
+                {t("hero_subtitle", language)}
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
@@ -336,7 +451,7 @@ export default function Home() {
                   className="h-16 px-8 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-zinc-950 font-semibold gap-3 group transition-all hover:scale-105 active:scale-95 shadow-xl shadow-emerald-500/10"
                 >
                   <Mic className="w-6 h-6 group-hover:animate-pulse" />
-                  <span className="text-lg">Send Audio</span>
+                  <span className="text-lg">{t("send_audio", language)}</span>
                 </Button>
 
                 <Button
@@ -346,7 +461,7 @@ export default function Home() {
                   className="h-16 px-8 rounded-2xl border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-100 font-semibold gap-3 group transition-all hover:scale-105 active:scale-95 backdrop-blur-sm"
                 >
                   <ImageIcon className="w-6 h-6 text-emerald-400" />
-                  <span className="text-lg">Upload Image</span>
+                  <span className="text-lg">{t("upload_image", language)}</span>
                 </Button>
               </div>
             </div>
@@ -376,13 +491,26 @@ export default function Home() {
                     )}
                     {msg.type === "audio" && msg.fileUrl && (
                       <div className="flex items-center gap-2">
-                        <audio src={msg.fileUrl} controls className="h-8 max-w-full invert hue-rotate-180" />
+                        <audio key={msg.fileUrl} controls preload="auto" className="h-8 max-w-full">
+                          <source src={msg.fileUrl} type="audio/mpeg" />
+                        </audio>
                       </div>
                     )}
-                    {msg.type === "text" && <span>{msg.content}</span>}
+                    {msg.type === "text" && <span className="whitespace-pre-wrap">{msg.content}</span>}
                   </div>
                 </div>
               ))}
+              {isLoading && (
+                <div className="flex justify-start animate-in fade-in">
+                  <div className="bg-zinc-900/80 backdrop-blur-md border border-zinc-800 rounded-2xl rounded-tl-none px-5 py-3 shadow-lg">
+                    <div className="flex items-center gap-2 text-emerald-400">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="text-sm">{t("thinking", language)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Input Area */}
@@ -403,7 +531,7 @@ export default function Home() {
                 {audioUrl && !isRecording && (
                   <div className="flex items-center gap-3 bg-zinc-900/80 backdrop-blur-md border border-zinc-800 px-4 py-2 rounded-2xl animate-in slide-in-from-left-4">
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                    <span className="text-sm font-medium">Audio Recorded</span>
+                    <span className="text-sm font-medium">{t("audio_recorded", language)}</span>
                     <button
                       onClick={cancelRecording}
                       className="text-zinc-400 hover:text-rose-400 transition-colors"
@@ -442,20 +570,21 @@ export default function Home() {
 
                     <input
                       type="text"
-                      placeholder="Ask anything about farming..."
+                      placeholder={t("placeholder", language)}
                       className="flex-1 bg-transparent border-none outline-none text-zinc-100 placeholder:text-zinc-500 px-2 min-w-0"
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                      disabled={isLoading}
                     />
 
                     <Button
                       onClick={handleSendMessage}
                       size="icon"
-                      disabled={(!inputValue.trim() && !imagePreview && !audioUrl) || isLoading}
+                      disabled={isLoading || (!inputValue.trim() && !imagePreview && !audioBlob)}
                       className={cn(
                         "h-10 w-10 rounded-2xl shadow-lg transition-all",
-                        (!inputValue.trim() && !imagePreview && !audioUrl)
+                        (isLoading || (!inputValue.trim() && !imagePreview && !audioBlob))
                           ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
                           : "bg-emerald-500 hover:bg-emerald-600 text-zinc-950 shadow-emerald-500/20"
                       )}
@@ -473,7 +602,7 @@ export default function Home() {
                       <span className="text-rose-400 font-mono font-bold tracking-wider">
                         {formatTime(recordingSeconds)}
                       </span>
-                      <span className="text-zinc-400 text-sm hidden sm:inline italic">Recording your question...</span>
+                      <span className="text-zinc-400 text-sm hidden sm:inline italic">{t("recording_status", language)}</span>
                     </div>
 
                     <div className="flex gap-2">
@@ -482,14 +611,14 @@ export default function Home() {
                         variant="ghost"
                         className="text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 px-3 h-8 rounded-full text-xs font-bold"
                       >
-                        CANCEL
+                        {t("cancel", language)}
                       </Button>
                       <Button
                         onClick={stopRecording}
                         className="bg-rose-500 hover:bg-rose-600 text-white px-4 h-8 rounded-full flex items-center gap-2 text-xs font-bold shadow-lg shadow-rose-500/20"
                       >
                         <Square className="w-3 h-3 fill-current" />
-                        STOP
+                        {t("stop", language)}
                       </Button>
                     </div>
                   </div>
@@ -500,6 +629,96 @@ export default function Home() {
         )}
       </main>
 
+      {/* News Drawer */}
+      {showNews && (
+        <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-zinc-950 border-l border-zinc-800 z-[100] flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
+          <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
+            <div className="flex items-center gap-2">
+              <Newspaper className="w-5 h-5 text-emerald-400" />
+              <h2 className="font-bold text-zinc-100">{t("agri_news", language)}</h2>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setShowNews(false)} className="rounded-full">
+              <X className="w-5 h-5 text-zinc-400" />
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {isLoadingNews ? (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-500">
+                <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+                <p>{t("thinking", language)}</p>
+              </div>
+            ) : news.length > 0 ? (
+              news.map((item, idx) => (
+                <a
+                  key={idx}
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800/50 hover:border-emerald-500/30 hover:bg-zinc-900/80 transition-all group relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Send className="w-3 h-3 text-emerald-400 -rotate-45" />
+                  </div>
+
+                  {item.urlToImage && (
+                    <div className="relative h-44 w-full mb-4 overflow-hidden rounded-xl border border-zinc-800/50">
+                      <img
+                        src={item.urlToImage}
+                        alt=""
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/60 to-transparent" />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-400 uppercase tracking-widest">
+                      <span className="bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                        {item.source?.name || "News"}
+                      </span>
+                      <span className="text-zinc-500">•</span>
+                      <span className="text-zinc-500">{new Date(item.publishedAt).toLocaleDateString()}</span>
+                    </div>
+
+                    <h3 className="font-bold text-zinc-100 group-hover:text-emerald-400 transition-colors line-clamp-2 leading-snug">
+                      {item.title}
+                    </h3>
+
+                    <p className="text-zinc-400 text-sm line-clamp-3 leading-relaxed">
+                      {item.description}
+                    </p>
+
+                    {item.author && (
+                      <div className="pt-2 flex items-center gap-2 border-t border-zinc-800/50 mt-2">
+                        <div className="w-5 h-5 rounded-full bg-zinc-800 flex items-center justify-center text-[8px] font-bold text-emerald-400 border border-zinc-700">
+                          {item.author.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-[11px] text-zinc-500 italic truncate">
+                          By {item.author}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </a>
+              ))
+            ) : (
+              <div className="text-center text-zinc-500 mt-20">
+                <Newspaper className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                <p>No news available at the moment.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Overlay */}
+      {showNews && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] sm:z-[99] animate-in fade-in transition-all"
+          onClick={() => setShowNews(false)}
+        />
+      )}
+
       <style jsx global>{`
         .scrollbar-hide::-webkit-scrollbar {
           display: none;
@@ -507,12 +726,6 @@ export default function Home() {
         .scrollbar-hide {
           -ms-overflow-style: none;
           scrollbar-width: none;
-        }
-        audio::-webkit-media-controls-enclosure {
-          background-color: transparent;
-        }
-        audio::-webkit-media-controls-panel {
-          padding: 0;
         }
       `}</style>
     </div>

@@ -1,71 +1,48 @@
-import base64
-import os
 from google import genai
-from google.genai import types
-from config import Config
+from config import GEMINI_API_KEY
 
-class LLMService:
-    def __init__(self):
-        self.api_key = os.environ.get("GEMINI_API_KEY")
-        if not self.api_key:
-            print("WARNING: GEMINI_API_KEY not set in environment variables.")
-        
-        self.client = genai.Client(api_key=self.api_key)
-        self.model = "gemini-2.5-flash-lite"
+client = genai.Client(api_key=GEMINI_API_KEY)
 
-    def generate_response(self, context, disease_info, user_query):
-        """
-        Generate answer using RAG context and Gemini 2.5 Flash Lite.
-        """
-        
-        search_prompt = f"""
-        You are an intelligent agricultural assistant called AgroSaathi.
-        
-        Context from Knowledge Base:
-        {context}
-        
-        Disease Detected (if any):
-        {disease_info}
-        
-        User Query:
-        {user_query}
-        
-        Based on the context and disease information provided above, provide a helpful, concise, and accurate answer to the farmer's query. 
-        If a disease is detected, prioritize remedies for it.
-        Keep the answer simple and easy to understand.
-        """
+SYSTEM_PROMPT = """You are AgroSaathi, an expert agricultural AI assistant. You help Indian farmers with:
+- Crop disease identification and treatment
+- Farming best practices and techniques
+- Soil health and fertilizer recommendations
+- Weather-related farming advice
+- Market information and crop selection
+- Pest management solutions
 
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(text=search_prompt),
-                ],
-            ),
-        ]
-        
-        # We can enable Google Search grounding if needed, but per prompt we stick to RAG context primarily
-        # adding thinking_config=0 as requested
-        generate_content_config = types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(
-                thinking_budget=0,
-            ),
-        )
+Be concise, practical, and give actionable advice. If an image is provided, analyze it for crop/plant health issues."""
 
-        try:
-            # We use the stream variable to buffer the whole response for simplicity in this API
-            full_response = ""
-            for chunk in self.client.models.generate_content_stream(
-                model=self.model,
-                contents=contents,
-                config=generate_content_config,
-            ):
-                full_response += chunk.text
-            
-            return full_response
-            
-        except Exception as e:
-            print(f"Error generating LLM response: {e}")
-            return "I apologize, but I am unable to process your request at the moment."
+def get_llm_response(text: str, image_path: str = None, conversation_history: list = None) -> str:
+    """Get response from Gemini API, optionally with an image and conversation history."""
+    Content = genai.types.Content
+    Part = genai.types.Part
 
-llm_service = LLMService()
+    contents = [
+        Content(role="user", parts=[Part.from_text(text=SYSTEM_PROMPT)]),
+        Content(role="model", parts=[Part.from_text(text="Understood. I am AgroSaathi, ready to help with agricultural advice.")]),
+    ]
+
+    # Add conversation history
+    if conversation_history:
+        for msg in conversation_history:
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append(Content(role=role, parts=[Part.from_text(text=msg["content"])]))
+
+    # Build current user message parts
+    current_parts = []
+    if image_path:
+        import mimetypes
+        mime_type = mimetypes.guess_type(image_path)[0] or "image/jpeg"
+        with open(image_path, "rb") as f:
+            image_data = f.read()
+        current_parts.append(Part.from_bytes(data=image_data, mime_type=mime_type))
+    current_parts.append(Part.from_text(text=text))
+
+    contents.append(Content(role="user", parts=current_parts))
+
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=contents,
+    )
+    return response.text
