@@ -1,5 +1,6 @@
 # 🌾 AgroSaathi: Your Advanced AI Agricultural Companion
-Access the deployed site here: [https://agro-saathi-38u7m0lsa-saumy-shs-projects.vercel.app/](site link)
+Access the deployed site here: https://agro-saathi-38u7m0lsa-saumy-shs-projects.vercel.app/
+
 **AgroSaathi** is a cutting-edge, multilingual AI assistant designed to empower farmers with real-time agricultural intelligence. By bridging the gap between advanced technology and traditional farming, AgroSaathi provides actionable insights through voice, text, and visual analysis in local Indian languages.
 
 ---
