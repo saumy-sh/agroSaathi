@@ -7,3 +7,4 @@ deep-translator
 edge-tts
 requests
 newsapi-python
+gunicorn
