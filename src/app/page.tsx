@@ -214,8 +214,10 @@ export default function Home() {
     if (!inputValue.trim() && !imagePreview && !audioBlob) return;
 
     const newMessages: Message[] = [];
+    const formData = new FormData();
+    formData.append("language", language);
 
-    if (imagePreview) {
+    if (imagePreview && selectedImage) {
       newMessages.push({
         role: "user",
         content: t("shared_image", language),
