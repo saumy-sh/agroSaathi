@@ -2,7 +2,7 @@
 Access the deployed site here: [https://agro-saathi-38u7m0lsa-saumy-shs-projects.vercel.app/](https://agro-saathi.vercel.app?_vercel_share=DIK9RHDwzSzphIOjv2DlxoDzRf3Rxn32)
 
 # Demo Video
-You can watch the demo video [https://drive.google.com/file/d/1wiuxD0qhN-3MDHWdOXTP8pUpQXVWy9LF/view?usp=sharing](here)
+You can watch the demo video [here](https://drive.google.com/file/d/1wiuxD0qhN-3MDHWdOXTP8pUpQXVWy9LF/view?usp=sharing)
 
 **AgroSaathi** is a cutting-edge, multilingual AI assistant designed to empower farmers with real-time agricultural intelligence. By bridging the gap between advanced technology and traditional farming, AgroSaathi provides actionable insights through voice, text, and visual analysis in local Indian languages.
 
